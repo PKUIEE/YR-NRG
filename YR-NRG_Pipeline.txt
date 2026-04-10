@@ -1,0 +1,80 @@
+Metagenomic data processing
+
+#####metaWRAP 
+conda activate metaWRAP v1.2.3
+
+#read_qc
+metawrap read_qc -1 raw_1.fastq -2 raw_2.fastq -t 56 -o clean_data --skip-bmtagger
+
+#assembly
+metawrap assembly -1 clean_1.fastq -2 clean_2.fastq -t 20 -o assembly_out -l 500 -m 1200
+
+
+#binning
+metaWRAP binning -o output -t 28 -a final_assembly.fasta --metabat2 --maxbin2 --concoct cleandata/*.fastq --run-checkm
+
+#refinement
+metaWRAP bin_refinement -o output -t 28 -A metabat2_bins -B maxbin2_bins -C concoct_bins
+
+
+###CheckM
+conda activate CheckM v1.1.2
+checkm lineage_wf all_MAGs -x fna all_MAGs_checkM1_out -t 42 --tab_table -f all_MAGs_checkm1_out
+
+
+
+###Abundance
+conda activate bowtie2
+
+bowtie2-build All_MAG_cat.fa All_MAG_cat.fa
+
+bowtie2 -x All_MAG_cat.fa -1 clean_1.fastq.gz -2 clean_2.fastq.gz -S out.sam --threads 48
+
+samtools view -@ 14 -b -S out.sam > out.bam
+
+samtools sort -@ 14 out.bam > out.sorted.bam
+
+coverm genome -m relative_abundance --min-read-percent-identity 0.90 --bam-files out.sorted.bam --genome-fasta-directory MAG/ > coverm_abundance_${i}.txt
+
+
+coverm genome \
+--genome-fasta-directory MAG/ \
+-m rpkm \
+--bam-files out.sorted.bam \
+--min-read-percent-identity 95 \
+--min-read-aligned-percent 90 \
+--output-file abundance_rpkm.tsv \
+--contig-end-exclusion 0 \
+--no-zeros \
+-t 42
+
+
+
+#Taxonomy
+#conda activate gtdbtk-2.4.0
+gtdbtk classify_wf --cpus 56 --genome_dir input_genomes/ --out_dir output_gtdb_out_v2.4 --skip_ani_screen
+
+
+#FastTree
+FastTree muscle.afa > tree
+
+
+##Functional Annotation
+#MetageMark
+MetaGeneMark_linux_64/mgm/gmhmmp -a -d -f G -m MetaGeneMark_linux_64/mgm/MetaGeneMark_v1.mod input.fna -A output.faa -D output.ffn
+
+
+
+#conda activate METABOLIC_v4.0
+
+perl METABOLIC-G.pl -t 28 -m-cutoff 0.75 -in-gn input_genomes -kofam-db full -o Metabolic-out
+
+
+###ARG
+blastp -query protein_ORF.fa -db SARG_database -num_threads 28 -evalue 1e-5 -out ARG_out.txt -max_target_seqs 1 -outfmt "6 qaccver qlen qstart qend qcovs saccver slen sstart send length nident pident mismatch gapopen gaps evalue bitscore stitle"
+
+
+##MGE
+diamond blastp -q protein_ORF.fa -d mobile_DB.dmnd --max-target-seqs 1 --out Mobile_diamond.tsv --outfmt 6 stitle qtitle pident bitscore slen evalue qlen sstart send qstart qend -e 1e-20 --query-cover 90 --id 90
+
+
